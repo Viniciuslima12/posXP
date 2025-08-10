@@ -1,0 +1,4 @@
+services:
+  scheduler:
+    volumes:
+      - ./dados_locais:/usr/local/airflow/Dados
