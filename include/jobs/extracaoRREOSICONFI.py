@@ -3,7 +3,8 @@ import time
 from datetime import datetime
 
 # Importando as funções helper de baixo nível e o nosso loader reutilizável
-from include.functions import chama_api
+from include.functions import chama_api, salva_log
+from include.jobs.loader_dados import salvar_dataframe
 
 def extrair_dados_rgf(
     caminho_arquivo_entes: str,
