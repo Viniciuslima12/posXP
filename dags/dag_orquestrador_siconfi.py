@@ -7,7 +7,7 @@ from airflow.decorators import task
 from airflow.models.param import Param
 
 # Importando as funções dos jobs separados
-from include.jobs.extracaoEntesSICONFI import extrair_para_dataframe as extrair_entes_df
+from include.jobs.extracaoEntesSICONFI import extrair_entes_df
 from include.jobs.extracaoRGFSICONFI import extrair_dados_rgf
 from include.jobs.loader_dados import salvar_dataframe
 
@@ -88,6 +88,7 @@ with DAG(
         return extrair_dados_rgf(
             caminho_arquivo_entes=caminho_arquivo_entes,
             ano_referencia=p['rgf_ano'],
+            uf_filtro=p['rgf_uf'], # Passando a UF selecionada
             ibge_filtro=p['rgf_ibge_code']
         )
     @task(task_id="salvar_rgf")
@@ -99,7 +100,7 @@ with DAG(
         return salvar_dataframe(
             df=df_para_salvar, destino=p['destino'], formato=p['formato'],
             s3_conn_id=p['s3_conn_id'], s3_bucket=p['s3_bucket'], s3_key=s3_key,
-            local_path="Dados/SICONFI/CampoGrande", local_filename=nome_arquivo
+            local_path="Dados/bronzeSICONFI/CampoGrande", local_filename=nome_arquivo
         )
     
     
