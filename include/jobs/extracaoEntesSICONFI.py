@@ -1,7 +1,7 @@
 import pandas as pd
 from include.functions import chama_api
 
-def extrair_para_dataframe(url: str, tabela_json: str) -> pd.DataFrame:
+def extrair_entes_df(url: str, tabela_json: str) -> pd.DataFrame:
     """
     Busca dados de uma API e os converte para um Pandas DataFrame.
 
