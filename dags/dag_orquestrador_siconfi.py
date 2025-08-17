@@ -13,6 +13,9 @@ from include.jobs.extracaoRGFSICONFI import extrair_dados_rgf
 from include.jobs.extracaoRREOSICONFI import extrair_dados_rreo
 from include.jobs.loader_dados import salvar_dataframe
 
+# Funções genéricas de transformação
+from include.functions import transformar_bronze_para_silver_por_anexo
+
 ID_S3 = "amazon_s3" 
 
 with DAG(
@@ -87,10 +90,14 @@ with DAG(
     @task(task_id="extrair_rgf")
     def task_extrair_rgf(caminho_arquivo_entes: str, **kwargs) -> pd.DataFrame:
         p = kwargs['params']
-        # 1. Pega as credenciais da conexão do Airflow usando o Hook
-        print(f"Buscando credenciais da conexão S3: {p['s3_conn_id']}")
-        hook = S3Hook(aws_conn_id=p['s3_conn_id'])
-        aws_credentials = hook.get_credentials()
+        aws_credentials = None
+        # Só busca as credenciais da AWS se o destino for 's3'
+        if p['destino'] == 's3':
+            print(f"Destino é S3. Buscando credenciais da conexão: {p['s3_conn_id']}")
+            hook = S3Hook(aws_conn_id=p['s3_conn_id'])
+            aws_credentials = hook.get_credentials()
+        else:
+            print("Destino é local. Não buscará credenciais da AWS para a leitura.")
 
         # 2. Passa as credenciais para a função de extração
         return extrair_dados_rgf(
@@ -98,7 +105,7 @@ with DAG(
             ano_referencia=p['ano'],
             uf_filtro=p['uf'],
             ibge_filtro=p['ibge_code'],
-            aws_credentials=aws_credentials # <-- Passando as credenciais
+            aws_credentials=aws_credentials 
         )
     
     @task(task_id="salvar_rgf")
@@ -117,17 +124,21 @@ with DAG(
     @task(task_id="extrair_rreo")
     def task_extrair_rreo(caminho_arquivo_entes: str, **kwargs) -> pd.DataFrame:
         p = kwargs['params']
-        # 1. Pega as credenciais da conexão do Airflow usando o Hook
-        print(f"Buscando credenciais da conexão S3: {p['s3_conn_id']}")
-        hook = S3Hook(aws_conn_id=p['s3_conn_id'])
-        aws_credentials = hook.get_credentials()
+        aws_credentials = None
+        # Só busca as credenciais da AWS se o destino for 's3'
+        if p['destino'] == 's3':
+            print(f"Destino é S3. Buscando credenciais da conexão: {p['s3_conn_id']}")
+            hook = S3Hook(aws_conn_id=p['s3_conn_id'])
+            aws_credentials = hook.get_credentials()
+        else:
+            print("Destino é local. Não buscará credenciais da AWS para a leitura.")
 
         return extrair_dados_rreo(
             caminho_arquivo_entes=caminho_arquivo_entes,
             ano_referencia=p['ano'],
             uf_filtro=p['uf'], # Passando a UF selecionada
             ibge_filtro=p['ibge_code'],
-            aws_credentials=aws_credentials # <-- Passando as credenciais
+            aws_credentials=aws_credentials
         )
     @task(task_id="salvar_rreo")
     def task_salvar_rreo(df_para_salvar: pd.DataFrame, **kwargs):
@@ -140,6 +151,27 @@ with DAG(
             s3_conn_id=p['s3_conn_id'], s3_bucket=p['s3_bucket'], s3_key=s3_key,
             local_path="Dados/bronzeSICONFI/CampoGrande", local_filename=nome_arquivo
         )
+    
+    @task(task_id="processar_rgf_para_silver")
+    def task_processar_rgf_silver(caminho_arquivo_bronze: str, **kwargs):
+        p = kwargs['params']
+        
+        # Buscando as credenciais para passar para o transformador
+        hook = S3Hook(aws_conn_id=p['s3_conn_id'])
+        aws_credentials = hook.get_credentials()
+        
+        lista_arquivos_criados = transformar_bronze_para_silver_por_anexo(
+            caminho_arquivo_bronze=caminho_arquivo_bronze,
+            destino_saida=p['destino'],
+            formato_saida=p['formato'],
+            path_saida_silver_local_base="Dados/SICONFI/CampoGrande/silver", # Novo caminho local
+            s3_conn_id=p['s3_conn_id'],
+            s3_bucket=p['s3_bucket'],
+            s3_path_saida_silver_base="silver/siconfi/rgf", # Novo caminho S3
+            ds_nodash=kwargs['ds_nodash'],
+            aws_credentials=aws_credentials
+        )
+        return lista_arquivos_criados
         
     
     

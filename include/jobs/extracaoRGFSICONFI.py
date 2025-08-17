@@ -1,9 +1,9 @@
 import pandas as pd
 import time
 from datetime import datetime
+from include.functions import chama_api, ler_arquivo_parquet 
 
-# Importando as funções helper de baixo nível e o nosso loader reutilizável
-from include.functions import chama_api
+
 
 def extrair_dados_rgf(
     caminho_arquivo_entes: str,
@@ -23,17 +23,11 @@ def extrair_dados_rgf(
     print("--- INICIANDO JOB DE EXTRAÇÃO SICONFI: RGF ---")
     print(f"Lendo arquivo de entes de: {caminho_arquivo_entes}")
 
-    # Prepara as credenciais para o pandas
-    storage_options = {
-        "key": aws_credentials.access_key,
-        "secret": aws_credentials.secret_key,
-        "token": aws_credentials.token, 
-    }
 
     # Pandas lê nativamente de S3 se as bibliotecas s3fs e pyarrow estiverem instaladas
-    df_entes = pd.read_parquet(
-        caminho_arquivo_entes,
-        storage_options=storage_options
+    df_entes = ler_arquivo_parquet(
+        caminho_do_arquivo=caminho_arquivo_entes,
+        aws_credentials=aws_credentials
     )
     
     # --- LÓGICA DE FILTRAGEM ATUALIZADA ---

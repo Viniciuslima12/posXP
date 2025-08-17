@@ -3,7 +3,8 @@ import time
 from datetime import datetime
 
 # Importando as funções helper de baixo nível e o nosso loader reutilizável
-from include.functions import chama_api
+from include.functions import chama_api, ler_arquivo_parquet
+
 
 def extrair_dados_rreo(
     caminho_arquivo_entes: str,
@@ -23,15 +24,10 @@ def extrair_dados_rreo(
     print("--- INICIANDO JOB DE EXTRAÇÃO SICONFI: rreo ---")
     print(f"Lendo arquivo de entes de: {caminho_arquivo_entes}")
 
-    storage_options = {
-        "key": aws_credentials.access_key,
-        "secret": aws_credentials.secret_key,
-        "token": aws_credentials.token, 
-    }
     # Pandas lê nativamente de S3 se as bibliotecas s3fs e pyarrow estiverem instaladas
-    df_entes = pd.read_parquet(
-        caminho_arquivo_entes,  
-        storage_options=storage_options
+    df_entes = ler_arquivo_parquet(
+        caminho_do_arquivo=caminho_arquivo_entes,
+        aws_credentials=aws_credentials
     )
     
     # --- LÓGICA DE FILTRAGEM ATUALIZADA ---
