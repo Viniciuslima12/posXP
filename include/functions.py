@@ -155,7 +155,6 @@ def transformar_bronze_para_silver_por_anexo(
         
         nome_arquivo_anexo = _sanitizar_nome_arquivo(anexo)
         
-        # A chamada para a função de salvar continua a mesma
         caminho_final_anexo = salvar_dataframe(
             df=df_anexo,
             destino=destino_saida,
