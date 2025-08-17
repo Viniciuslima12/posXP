@@ -5,10 +5,12 @@ from datetime import datetime
 from airflow.models.dag import DAG
 from airflow.decorators import task
 from airflow.models.param import Param
+from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 
 # Importando as funções dos jobs separados
 from include.jobs.extracaoEntesSICONFI import extrair_entes_df
 from include.jobs.extracaoRGFSICONFI import extrair_dados_rgf
+from include.jobs.extracaoRREOSICONFI import extrair_dados_rreo
 from include.jobs.loader_dados import salvar_dataframe
 
 ID_S3 = "amazon_s3" 
@@ -31,14 +33,14 @@ with DAG(
         "s3_bucket": Param("dados-projeto-aplicado", type="string", title="[S3] Nome do Bucket"),
         "camada": Param("bronze", type="string", enum=["bronze", "silver", "gold"], title="Camada de Armazenamento"),
         "formato": Param("csv", type="string", enum=["csv", "parquet"], title="Formato de Saída"),
-        "rgf_uf": Param(
+        "uf": Param(
             "MS", 
             type="string", 
             title="[RGF] UF para Filtro",
             enum=["MS", "SP", "RJ", "MT"], # <-- MUDANÇA: Adicionado menu de seleção
         ),
-        "rgf_ano": Param(2024, type="integer", title="[RGF] Ano de Referência"),
-        "rgf_ibge_code": Param(
+        "ano": Param(2024, type="integer", title="[RGF] Ano de Referência"),
+        "ibge_code": Param(
             "5002704", 
             type="string", # <-- MUDANÇA: Alterado para string para aceitar 'TODOS'
             title="[RGF] Código IBGE ou 'TODOS'",
@@ -85,23 +87,60 @@ with DAG(
     @task(task_id="extrair_rgf")
     def task_extrair_rgf(caminho_arquivo_entes: str, **kwargs) -> pd.DataFrame:
         p = kwargs['params']
+        # 1. Pega as credenciais da conexão do Airflow usando o Hook
+        print(f"Buscando credenciais da conexão S3: {p['s3_conn_id']}")
+        hook = S3Hook(aws_conn_id=p['s3_conn_id'])
+        aws_credentials = hook.get_credentials()
+
+        # 2. Passa as credenciais para a função de extração
         return extrair_dados_rgf(
             caminho_arquivo_entes=caminho_arquivo_entes,
-            ano_referencia=p['rgf_ano'],
-            uf_filtro=p['rgf_uf'], # Passando a UF selecionada
-            ibge_filtro=p['rgf_ibge_code']
+            ano_referencia=p['ano'],
+            uf_filtro=p['uf'],
+            ibge_filtro=p['ibge_code'],
+            aws_credentials=aws_credentials # <-- Passando as credenciais
         )
+    
     @task(task_id="salvar_rgf")
     def task_salvar_rgf(df_para_salvar: pd.DataFrame, **kwargs):
         p = kwargs['params']
-        nome_arquivo = f"MS_{p['rgf_ano']}_rgf" # Nome do arquivo de saída
-        s3_key = f"brutos/siconfi/rgf/{kwargs['ds_nodash']}/{nome_arquivo}.{p['formato']}"
+        nome_arquivo = f"MS_{p['ano']}_rgf" # Nome do arquivo de saída
+        s3_key = f"{p['camada']}/siconfi/rgf/{nome_arquivo}.{p['formato']}"
 
         return salvar_dataframe(
             df=df_para_salvar, destino=p['destino'], formato=p['formato'],
             s3_conn_id=p['s3_conn_id'], s3_bucket=p['s3_bucket'], s3_key=s3_key,
             local_path="Dados/bronzeSICONFI/CampoGrande", local_filename=nome_arquivo
         )
+    
+    # --- ETAPA 3: RREO ---
+    @task(task_id="extrair_rreo")
+    def task_extrair_rreo(caminho_arquivo_entes: str, **kwargs) -> pd.DataFrame:
+        p = kwargs['params']
+        # 1. Pega as credenciais da conexão do Airflow usando o Hook
+        print(f"Buscando credenciais da conexão S3: {p['s3_conn_id']}")
+        hook = S3Hook(aws_conn_id=p['s3_conn_id'])
+        aws_credentials = hook.get_credentials()
+
+        return extrair_dados_rreo(
+            caminho_arquivo_entes=caminho_arquivo_entes,
+            ano_referencia=p['ano'],
+            uf_filtro=p['uf'], # Passando a UF selecionada
+            ibge_filtro=p['ibge_code'],
+            aws_credentials=aws_credentials # <-- Passando as credenciais
+        )
+    @task(task_id="salvar_rreo")
+    def task_salvar_rreo(df_para_salvar: pd.DataFrame, **kwargs):
+        p = kwargs['params']
+        nome_arquivo = f"MS_{p['ano']}_rreo" # Nome do arquivo de saída
+        s3_key = f"{p['camada']}/siconfi/rreo/{nome_arquivo}.{p['formato']}"
+
+        return salvar_dataframe(
+            df=df_para_salvar, destino=p['destino'], formato=p['formato'],
+            s3_conn_id=p['s3_conn_id'], s3_bucket=p['s3_bucket'], s3_key=s3_key,
+            local_path="Dados/bronzeSICONFI/CampoGrande", local_filename=nome_arquivo
+        )
+        
     
     
     # 1. Extrai Entes
@@ -113,3 +152,8 @@ with DAG(
     df_rgf = task_extrair_rgf(caminho_arquivo_entes=caminho_entes_salvo)
     # 4. Salva RGF, que depende do DataFrame do RGF ter sido extraído
     caminho_rgf_salvo = task_salvar_rgf(df_para_salvar=df_rgf)
+
+    # 5. Extrai RREO, que depende do arquivo de entes ter sido salvo
+    df_rgf = task_extrair_rreo(caminho_arquivo_entes=caminho_entes_salvo)
+    # 46. Salva RREO, que depende do DataFrame do RGF ter sido extraído
+    caminho_rgf_salvo = task_salvar_rreo(df_para_salvar=df_rgf)

@@ -10,6 +10,7 @@ def extrair_dados_rgf(
     ano_referencia: int,
     uf_filtro: str, # <-- Novo parâmetro para filtrar o estado
     ibge_filtro: str,
+    aws_credentials
 ) -> pd.DataFrame:
     """
     Executa a extração de dados do RGF para um município específico.
@@ -22,8 +23,18 @@ def extrair_dados_rgf(
     print("--- INICIANDO JOB DE EXTRAÇÃO SICONFI: RGF ---")
     print(f"Lendo arquivo de entes de: {caminho_arquivo_entes}")
 
+    # Prepara as credenciais para o pandas
+    storage_options = {
+        "key": aws_credentials.access_key,
+        "secret": aws_credentials.secret_key,
+        "token": aws_credentials.token, 
+    }
+
     # Pandas lê nativamente de S3 se as bibliotecas s3fs e pyarrow estiverem instaladas
-    df_entes = pd.read_parquet(caminho_arquivo_entes)
+    df_entes = pd.read_parquet(
+        caminho_arquivo_entes,
+        storage_options=storage_options
+    )
     
     # --- LÓGICA DE FILTRAGEM ATUALIZADA ---
     print(f"Filtrando entes para a UF: {uf_filtro}")
