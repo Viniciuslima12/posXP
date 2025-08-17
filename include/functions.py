@@ -69,73 +69,6 @@ def _sanitizar_nome_arquivo(nome: str) -> str:
     nome = re.sub(r'[-\s]+', '_', nome)
     return nome
 
-
-def transformar_bronze_para_silver_por_anexo(
-    caminho_arquivo_bronze: str,
-    destino_saida: str,
-    formato_saida: str,
-    path_saida_silver_local_base: str,
-    s3_conn_id: str,
-    s3_bucket: str,
-    s3_path_saida_silver_base: str,
-    ds_nodash: str,
-    aws_credentials
-) -> list:
-    """
-    Lê um arquivo consolidado da camada Bronze (RGF ou RREO), itera pela coluna 'anexo',
-    e salva um arquivo separado para cada anexo na camada Silver.
-    """
-    print(f"--- INICIANDO TRANSFORMAÇÃO BRONZE -> SILVER ---")
-    print(f"Lendo arquivo de origem: {caminho_arquivo_bronze}")
-
-    storage_options = {
-        "key": aws_credentials.access_key,
-        "secret": aws_credentials.secret_key,
-        "token": aws_credentials.token,
-    }
-    
-    try:
-        df_bronze = pd.read_parquet(caminho_arquivo_bronze, storage_options=storage_options)
-    except Exception:
-        print("Arquivo de origem vazio ou inválido. Nenhuma transformação será feita.")
-        return []
-
-    if df_bronze.empty or 'anexo' not in df_bronze.columns:
-        print("DataFrame de origem vazio ou sem a coluna 'anexo'. A transformação será pulada.")
-        return []
-
-    anexos_unicos = df_bronze['anexo'].unique()
-    print(f"Encontrados {len(anexos_unicos)} anexos únicos para processar.")
-    
-    arquivos_silver_criados = []
-
-    for anexo in anexos_unicos:
-        if anexo is None:
-            print("Pulando registros com anexo nulo.")
-            continue
-            
-        print(f"Processando anexo: '{anexo}'")
-        df_anexo = df_bronze[df_bronze['anexo'] == anexo]
-        
-        nome_arquivo_anexo = _sanitizar_nome_arquivo(anexo)
-        
-        # Chama a função de salvar, que agora está neste mesmo arquivo
-        caminho_final_anexo = salvar_dataframe(
-            df=df_anexo,
-            destino=destino_saida,
-            formato=formato_saida,
-            s3_conn_id=s3_conn_id,
-            s3_bucket=s3_bucket,
-            s3_key=f"{s3_path_saida_silver_base}/{ds_nodash}/{nome_arquivo_anexo}.{formato_saida}",
-            local_path=path_saida_silver_local_base,
-            local_filename=nome_arquivo_anexo
-        )
-        arquivos_silver_criados.append(caminho_final_anexo)
-
-    print(f"--- TRANSFORMAÇÃO CONCLUÍDA ---")
-    return arquivos_silver_criados
-
-
 def ler_arquivo_parquet(caminho_do_arquivo: str, aws_credentials=None) -> pd.DataFrame:
     """
     Lê um arquivo Parquet de forma inteligente, seja de um caminho local ou de um bucket S3.
@@ -171,3 +104,71 @@ def ler_arquivo_parquet(caminho_do_arquivo: str, aws_credentials=None) -> pd.Dat
         print("Arquivo lido com sucesso do sistema de arquivos local.")
     
     return df
+
+def transformar_bronze_para_silver_por_anexo(
+    caminho_arquivo_bronze: str,
+    destino_saida: str,
+    formato_saida: str,
+    path_saida_silver_local_base: str,
+    s3_conn_id: str,
+    s3_bucket: str,
+    s3_path_saida_silver_base: str,
+    ds_nodash: str,
+    aws_credentials=None
+) -> list:
+    """
+    Lê um arquivo consolidado da camada Bronze (RGF ou RREO), itera pela coluna 'anexo',
+    e salva um arquivo separado para cada anexo na camada Silver.
+    """
+    print(f"--- INICIANDO TRANSFORMAÇÃO BRONZE -> SILVER ---")
+    
+    # --- MUDANÇA PRINCIPAL AQUI ---
+    # Em vez de recriar a lógica de leitura, chamamos nossa função inteligente.
+    # Ela já sabe como lidar com caminhos locais ou S3 e usar as credenciais quando necessário.
+    try:
+        df_bronze = ler_arquivo_parquet(
+            caminho_do_arquivo=caminho_arquivo_bronze,
+            aws_credentials=aws_credentials
+        )
+    except Exception as e:
+        print(f"Erro ao ler o arquivo Parquet de origem via ler_arquivo_parquet: {e}")
+        print("Assumindo que o arquivo de origem estava vazio ou inválido. Nenhuma transformação será feita.")
+        return []
+
+    # --- O RESTANTE DO CÓDIGO PERMANECE O MESMO ---
+    if df_bronze.empty or 'anexo' not in df_bronze.columns:
+        print("DataFrame de origem vazio ou sem a coluna 'anexo'. A transformação será pulada.")
+        return []
+
+    anexos_unicos = df_bronze['anexo'].unique()
+    print(f"Encontrados {len(anexos_unicos)} anexos únicos para processar.")
+    
+    arquivos_silver_criados = []
+
+    for anexo in anexos_unicos:
+        if anexo is None:
+            print("Pulando registros com anexo nulo.")
+            continue
+            
+        print(f"Processando anexo: '{anexo}'")
+        df_anexo = df_bronze[df_bronze['anexo'] == anexo]
+        
+        nome_arquivo_anexo = _sanitizar_nome_arquivo(anexo)
+        
+        # A chamada para a função de salvar continua a mesma
+        caminho_final_anexo = salvar_dataframe(
+            df=df_anexo,
+            destino=destino_saida,
+            formato=formato_saida,
+            s3_conn_id=s3_conn_id,
+            s3_bucket=s3_bucket,
+            s3_key=f"{s3_path_saida_silver_base}/{ds_nodash}/{nome_arquivo_anexo}.{formato_saida}",
+            local_path=path_saida_silver_local_base,
+            local_filename=nome_arquivo_anexo
+        )
+        arquivos_silver_criados.append(caminho_final_anexo)
+
+    print(f"--- TRANSFORMAÇÃO CONCLUÍDA: {len(arquivos_silver_criados)} arquivos gerados na camada Silver. ---")
+    return arquivos_silver_criados
+
+

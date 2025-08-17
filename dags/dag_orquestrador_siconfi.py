@@ -34,8 +34,8 @@ with DAG(
         "destino": Param("s3", type="string", title="Destino dos Dados", enum=["s3", "local"]),
         "s3_conn_id": Param(ID_S3, type="string", title="[S3] Airflow Connection ID"),
         "s3_bucket": Param("dados-projeto-aplicado", type="string", title="[S3] Nome do Bucket"),
-        "camada": Param("bronze", type="string", enum=["bronze", "silver", "gold"], title="Camada de Armazenamento"),
-        "formato": Param("csv", type="string", enum=["csv", "parquet"], title="Formato de Saída"),
+        # "camada": Param("bronze", type="string", enum=["bronze", "silver", "gold"], title="Camada de Armazenamento"),
+        "formato": Param("parquet", type="string", enum=["csv", "parquet"], title="Formato de Saída"),
         "uf": Param(
             "MS", 
             type="string", 
@@ -71,7 +71,7 @@ with DAG(
         p = kwargs['params']
 
         # Monta a chave do S3 dinamicamente
-        s3_key = f"{p['camada']}/siconfi/entes.{p['formato']}"
+        s3_key = f"bronze/siconfi/entes.{p['formato']}"
 
         caminho_final = salvar_dataframe(
             df=df_para_salvar,
@@ -81,7 +81,7 @@ with DAG(
             s3_bucket=p['s3_bucket'],
             s3_key=s3_key,
             # Parâmetros locais, caso o destino seja 'local'
-            local_path=f"Dados/{p['camada']}SICONFI",
+            local_path=f"Dados/bronzeSICONFI",
             local_filename="entes"
         )
         return caminho_final
@@ -112,12 +112,12 @@ with DAG(
     def task_salvar_rgf(df_para_salvar: pd.DataFrame, **kwargs):
         p = kwargs['params']
         nome_arquivo = f"MS_{p['ano']}_rgf" # Nome do arquivo de saída
-        s3_key = f"{p['camada']}/siconfi/rgf/{nome_arquivo}.{p['formato']}"
+        s3_key = f"bronze/siconfi/rgf/{nome_arquivo}.{p['formato']}"
 
         return salvar_dataframe(
             df=df_para_salvar, destino=p['destino'], formato=p['formato'],
             s3_conn_id=p['s3_conn_id'], s3_bucket=p['s3_bucket'], s3_key=s3_key,
-            local_path="Dados/bronzeSICONFI/CampoGrande", local_filename=nome_arquivo
+            local_path="Dados/bronzeSICONFI", local_filename=nome_arquivo
         )
     
     # --- ETAPA 3: RREO ---
@@ -144,12 +144,12 @@ with DAG(
     def task_salvar_rreo(df_para_salvar: pd.DataFrame, **kwargs):
         p = kwargs['params']
         nome_arquivo = f"MS_{p['ano']}_rreo" # Nome do arquivo de saída
-        s3_key = f"{p['camada']}/siconfi/rreo/{nome_arquivo}.{p['formato']}"
+        s3_key = f"bronze/siconfi/rreo/{nome_arquivo}.{p['formato']}"
 
         return salvar_dataframe(
             df=df_para_salvar, destino=p['destino'], formato=p['formato'],
             s3_conn_id=p['s3_conn_id'], s3_bucket=p['s3_bucket'], s3_key=s3_key,
-            local_path="Dados/bronzeSICONFI/CampoGrande", local_filename=nome_arquivo
+            local_path="Dados/bronzeSICONFI", local_filename=nome_arquivo
         )
     
     @task(task_id="processar_rgf_para_silver")
@@ -164,7 +164,7 @@ with DAG(
             caminho_arquivo_bronze=caminho_arquivo_bronze,
             destino_saida=p['destino'],
             formato_saida=p['formato'],
-            path_saida_silver_local_base="Dados/SICONFI/CampoGrande/silver", # Novo caminho local
+            path_saida_silver_local_base="Dados/silverSICONFI", # Novo caminho local
             s3_conn_id=p['s3_conn_id'],
             s3_bucket=p['s3_bucket'],
             s3_path_saida_silver_base="silver/siconfi/rgf", # Novo caminho S3
@@ -183,9 +183,12 @@ with DAG(
     # 3. Extrai RGF, que depende do arquivo de entes ter sido salvo
     df_rgf = task_extrair_rgf(caminho_arquivo_entes=caminho_entes_salvo)
     # 4. Salva RGF, que depende do DataFrame do RGF ter sido extraído
-    caminho_rgf_salvo = task_salvar_rgf(df_para_salvar=df_rgf)
+    caminho_rgf_bronze = task_salvar_rgf(df_para_salvar=df_rgf)
 
     # 5. Extrai RREO, que depende do arquivo de entes ter sido salvo
     df_rgf = task_extrair_rreo(caminho_arquivo_entes=caminho_entes_salvo)
     # 46. Salva RREO, que depende do DataFrame do RGF ter sido extraído
-    caminho_rgf_salvo = task_salvar_rreo(df_para_salvar=df_rgf)
+    caminho_rreo_bronze = task_salvar_rreo(df_para_salvar=df_rgf)
+
+    # Camada Silver
+    lista_arquivos_silver_rgf = task_processar_rgf_silver(caminho_arquivo_bronze=caminho_rgf_bronze)
