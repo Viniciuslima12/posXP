@@ -6,12 +6,14 @@ from airflow.models.dag import DAG
 from airflow.decorators import task
 from airflow.models.param import Param
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
+from airflow.exceptions import AirflowSkipException
 
 # Importando as funções dos jobs separados
 from include.jobs.extracaoEntesSICONFI import extrair_entes_df
 from include.jobs.extracaoRGFSICONFI import extrair_dados_rgf
 from include.jobs.extracaoRREOSICONFI import extrair_dados_rreo
 from include.jobs.loader_dados import salvar_dataframe
+from include.jobs.transformer_gold import transformar_rgf_silver_para_gold, transformar_rreo_silver_para_gold
 
 # Funções genéricas de transformação
 from include.functions import transformar_bronze_para_silver_por_anexo
@@ -152,7 +154,7 @@ with DAG(
             local_path="Dados/bronzeSICONFI", local_filename=nome_arquivo
         )
     
-    @task(task_id="processar_rgf_para_silver")
+    @task(task_id="processar_para_silver")
     def task_processar_silver(caminho_arquivo_bronze: str, tipo_arquivo: str, **kwargs):
         p = kwargs['params']
         
@@ -172,6 +174,75 @@ with DAG(
             aws_credentials=aws_credentials
         )
         return lista_arquivos_criados
+    
+    @task(task_id="processar_rgf_para_gold")
+    def task_processar_rgf_gold(lista_arquivos_silver: list, **kwargs):
+        p = kwargs['params']
+        aws_credentials = None
+        
+        caminho_anexo_01 = next((s for s in lista_arquivos_silver if 'Anexo_01' in s), None)
+
+        if not caminho_anexo_01:
+            print("Arquivo do Anexo 01 não encontrado na camada Silver. Pulando a etapa Gold.")
+            raise AirflowSkipException()
+        
+        # --- PONTO CHAVE: Lógica condicional para as credenciais ---
+        # Esta lógica garante que só buscamos credenciais quando precisamos delas.
+        if p['destino'] == 's3':
+            hook = S3Hook(aws_conn_id=p['s3_conn_id'])
+            aws_credentials = hook.get_credentials()
+
+        # A função de transformação é chamada, e 'aws_credentials' será
+        # as credenciais reais se for S3, ou 'None' se for local.
+        df_gold = transformar_rgf_silver_para_gold(
+            caminho_anexo_01_silver=caminho_anexo_01,
+            aws_credentials=aws_credentials
+        )
+        return df_gold
+    
+    @task(task_id="salvar_rgf_gold")
+    def task_salvar_rgf_gold(df_para_salvar: pd.DataFrame, **kwargs):
+        if df_para_salvar.empty:
+            print("DataFrame Gold está vazio. Pulando o salvamento.")
+            raise AirflowSkipException()
+
+        p = kwargs['params']
+        ibge_sufixo = p['ibge_code'].upper()
+        nome_arquivo = f"indicadores_pessoal_rcl_{p['uf']}_{p['ano']}_{ibge_sufixo}"
+        s3_key = f"gold/siconfi/rgf/{kwargs['ds_nodash']}/{nome_arquivo}.{p['formato']}"
+
+        return salvar_dataframe(
+            df=df_para_salvar, destino=p['destino'], formato=p['formato'],
+            s3_conn_id=p['s3_conn_id'], s3_bucket=p['s3_bucket'], s3_key=s3_key,
+            local_path="Dados/goldSICONFI/rgf", local_filename=nome_arquivo
+        )
+    
+    @task(task_id="processar_rreo_para_gold")
+    def task_processar_rreo_gold(lista_arquivos_silver: list, **kwargs):
+        p = kwargs['params']
+        aws_credentials = None
+        caminho_anexo_01 = next((s for s in lista_arquivos_silver if 'Anexo_01' in s), None)
+        if not caminho_anexo_01: raise AirflowSkipException()
+        if p['destino'] == 's3':
+            hook = S3Hook(aws_conn_id=p['s3_conn_id'])
+            aws_credentials = hook.get_credentials()
+        # Chama a nova função de transformação RREO Gold
+        return transformar_rreo_silver_para_gold(
+            caminho_anexo_01_silver=caminho_anexo_01, aws_credentials=aws_credentials
+        )
+    
+    @task(task_id="salvar_rreo_gold")
+    def task_salvar_rreo_gold(df_para_salvar: pd.DataFrame, **kwargs):
+        if df_para_salvar.empty: raise AirflowSkipException()
+        p = kwargs['params']
+        ibge_sufixo = p['ibge_code'].upper()
+        nome_arquivo = f"indicadores_receita_despesa_{p['uf']}_{p['ano']}_{ibge_sufixo}"
+        s3_key = f"gold/siconfi/rreo/{kwargs['ds_nodash']}/{nome_arquivo}.{p['formato']}"
+        return salvar_dataframe(
+            df=df_para_salvar, destino=p['destino'], formato=p['formato'],
+            s3_conn_id=p['s3_conn_id'], s3_bucket=p['s3_bucket'], s3_key=s3_key,
+            local_path="Dados/goldSICONFI/rreo", local_filename=nome_arquivo
+        )
         
     
     
@@ -187,11 +258,18 @@ with DAG(
 
     # 5. Extrai RREO, que depende do arquivo de entes ter sido salvo
     df_rgf = task_extrair_rreo(caminho_arquivo_entes=caminho_entes_salvo)
-    # 46. Salva RREO, que depende do DataFrame do RGF ter sido extraído
+    # 6. Salva RREO, que depende do DataFrame do RGF ter sido extraído
     caminho_rreo_bronze = task_salvar_rreo(df_para_salvar=df_rgf)
 
-    # Camada Silver RGF
+    # 7. Camada Silver RGF
     lista_arquivos_silver_rgf = task_processar_silver(caminho_arquivo_bronze=caminho_rgf_bronze, tipo_arquivo="rgf")
-
-    # Camada Silver RREO
+    # 8. Camada Silver RREO
     lista_arquivos_silver_rreo = task_processar_silver(caminho_arquivo_bronze=caminho_rreo_bronze, tipo_arquivo="rreo")
+
+    # 9. Gold RGF
+    df_gold_rgf = task_processar_rgf_gold(lista_arquivos_silver=lista_arquivos_silver_rgf)
+    caminho_gold_rgf = task_salvar_rgf_gold(df_para_salvar=df_gold_rgf)
+
+    # 10. Gold RREO
+    df_gold_rreo = task_processar_rreo_gold(lista_arquivos_silver=lista_arquivos_silver_rreo)
+    caminho_gold_rreo = task_salvar_rreo_gold(df_para_salvar=df_gold_rreo)
