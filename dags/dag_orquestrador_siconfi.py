@@ -153,7 +153,7 @@ with DAG(
         )
     
     @task(task_id="processar_rgf_para_silver")
-    def task_processar_rgf_silver(caminho_arquivo_bronze: str, **kwargs):
+    def task_processar_silver(caminho_arquivo_bronze: str, tipo_arquivo: str, **kwargs):
         p = kwargs['params']
         
         # Buscando as credenciais para passar para o transformador
@@ -164,10 +164,10 @@ with DAG(
             caminho_arquivo_bronze=caminho_arquivo_bronze,
             destino_saida=p['destino'],
             formato_saida=p['formato'],
-            path_saida_silver_local_base="Dados/silverSICONFI", # Novo caminho local
+            path_saida_silver_local_base=f"Dados/silverSICONFI/{tipo_arquivo}", # Novo caminho local
             s3_conn_id=p['s3_conn_id'],
             s3_bucket=p['s3_bucket'],
-            s3_path_saida_silver_base="silver/siconfi/rgf", # Novo caminho S3
+            s3_path_saida_silver_base=f"silver/siconfi/{tipo_arquivo}", # Novo caminho S3
             ds_nodash=kwargs['ds_nodash'],
             aws_credentials=aws_credentials
         )
@@ -190,5 +190,8 @@ with DAG(
     # 46. Salva RREO, que depende do DataFrame do RGF ter sido extraído
     caminho_rreo_bronze = task_salvar_rreo(df_para_salvar=df_rgf)
 
-    # Camada Silver
-    lista_arquivos_silver_rgf = task_processar_rgf_silver(caminho_arquivo_bronze=caminho_rgf_bronze)
+    # Camada Silver RGF
+    lista_arquivos_silver_rgf = task_processar_silver(caminho_arquivo_bronze=caminho_rgf_bronze, tipo_arquivo="rgf")
+
+    # Camada Silver RREO
+    lista_arquivos_silver_rreo = task_processar_silver(caminho_arquivo_bronze=caminho_rreo_bronze, tipo_arquivo="rreo")
