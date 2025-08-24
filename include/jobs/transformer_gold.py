@@ -28,7 +28,8 @@ def transformar_rgf_silver_para_gold(
     
     contas_desejadas = [
         "RECEITA CORRENTE LIQUIDA - RCL (IV)",
-        "DESPESA TOTAL COM PESSOAL - DTP (VI) = (IIIa + IIIb)"
+        "DESPESA TOTAL COM PESSOAL - DTP (VI) = (IIIa + IIIb)",
+        "DESPESA TOTAL COM PESSOAL - DTP (VIII) = (IIIa + IIIb)"
     ]
     colunas_desejadas = ["exercicio", "periodo", "conta", "cod_ibge", "valor"]
 
